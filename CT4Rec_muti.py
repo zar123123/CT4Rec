@@ -110,9 +110,31 @@ class CT4Rec(nn.Module):
         user_1 = pos_item_emb_1 - last_item_emb_1 - t
         user_2 = pos_item_emb_2 - last_item_emb_2 - t
 
+        '''
+        pos_user_pair_sim = torch.sum(torch.mul(user_1, user_2),dim=1)
+        temperature = self.dy_temperature(pos_user_pair_sim)
+        ground_user = torch.exp(torch.sum(torch.mul(user_1, user_emb_2),dim=1) / temperature)
+        
+        pos_ratings_user = torch.exp(pos_user_pair_sim / temperature) 
+        tot_ratings_user = torch.matmul(user_1, torch.transpose(users_emb_2, 0, 1))
+        temperature = self.dy_temperature(tot_ratings_user)
+        tot_ratings_user = torch.sum(torch.exp(tot_ratings_user / temperature),dim=1)
+        ssl_loss_user = - torch.sum(torch.log(pos_ratings_user / ((tot_ratings_user-ground_user).clamp_(min=0) + pos_ratings_user)))
+        
+        
+        pos_item_pair_sim = torch.sum(torch.mul(item_1, item_2),dim=1)
+        temperature = self.dy_temperature(pos_item_pair_sim)
+        ground_item = torch.exp(torch.sum(torch.mul(item_1, pos_item_emb_2),dim=1) / temperature)
+        
+        pos_ratings_item = torch.exp(pos_item_pair_sim / temperature)
+        tot_ratings_item = torch.matmul(item_1, torch.transpose(items_emb_2, 0, 1))  
+        temperature = self.dy_temperature(tot_ratings_item)
+        tot_ratings_item = torch.sum(torch.exp(tot_ratings_item / temperature),dim=1) 
+        ssl_loss_item = - torch.sum(torch.log(pos_ratings_item / ((tot_ratings_item-ground_item).clamp_(min=0) + pos_ratings_item)))
+        '''
         
         pos_user_pair_sim = torch.sum(torch.mul(user_1, user_2),dim=1)
-        temperature = self.min_temp + 0.5 * (self.max_temp - self.min_temp) * (1 + torch.cos(np.pi * (1 + pos_user_pair_sim)))
+        temperature = self.dy_temperature(pos_user_pair_sim)
         ground_user = torch.exp(torch.sum(torch.mul(user_1, user_emb_2),dim=1) / temperature)
         
         pos_ratings_user = torch.exp(pos_user_pair_sim / temperature) 
@@ -122,7 +144,7 @@ class CT4Rec(nn.Module):
         
         
         pos_item_pair_sim = torch.sum(torch.mul(item_1, item_2),dim=1)
-        temperature = self.min_temp + 0.5 * (self.max_temp - self.min_temp) * (1 + torch.cos(np.pi * (1 + pos_item_pair_sim)))
+        temperature = self.dy_temperature(pos_user_pair_sim)
         ground_item = torch.exp(torch.sum(torch.mul(item_1, pos_item_emb_2),dim=1) / temperature)
         
         pos_ratings_item = torch.exp(pos_item_pair_sim / temperature)
@@ -131,6 +153,10 @@ class CT4Rec(nn.Module):
         ssl_loss_item = - torch.sum(torch.log(pos_ratings_item / ((tot_ratings_item-ground_item).clamp_(min=0) + pos_ratings_item)))
         
         return pos_score - neg_score, reg, ssl_loss_user + ssl_loss_item
+    
+    def dy_temperature(self, sim):
+        temperature = self.min_temp + 0.5 * (self.max_temp - self.min_temp) * (1 + torch.cos(np.pi * (1 + sim)))
+        return temperature
     
     def noise_compute(self, noise_type):
         users_emb = self.user_emb_w.weight
@@ -315,14 +341,14 @@ def train(user_count, item_count, train_data, test_data, embedding_size, eps, mi
             batch_loss.backward()
             optimizer.step()
             ct4Rec.clip_by_norm_op(last_item, pos_item, neg_item)
-        '''
+
         if epoch == 99:
             trans_rec.save_model(trans_rec,epoch)
         if epoch == 299:
             trans_rec.save_model(trans_rec,epoch)
         if epoch == 499:
             trans_rec.save_model(trans_rec,epoch)
-        '''
+        
         
         if (epoch+1) % args.verbose == 0:
             ct4Rec.eval()
@@ -449,7 +475,7 @@ def parse_args():
                         default='CT4Rec') 
     parser.add_argument('--dataset_path', nargs='?', default='./datasets/',
                         help='Data path.')
-    parser.add_argument('--dataset', nargs='?', default='Tools',
+    parser.add_argument('--dataset', nargs='?', default='Automotive',
                         help='Name of the dataset.')     
     parser.add_argument('--learning_rate', type=float, default=1e-3) 
     
